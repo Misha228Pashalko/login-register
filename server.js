@@ -79,3 +79,15 @@ app.post('/login', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Сервер запущено на http://localhost:${PORT}`);
 });
+
+const helmet = require('helmet');
+app.use(helmet());
+
+const rateLimit = require('express-rate-limit');
+
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 хвилин
+    max: 10 // ліміт запитів з одного IP
+});
+
+app.use(limiter);
