@@ -1,63 +1,81 @@
 const express = require('express');
+const bodyParser = require('body-parser');
 const fs = require('fs');
 const path = require('path');
-const bodyParser = require('body-parser');
+const bcrypt = require('bcryptjs');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const PORT = 3000;
 const USERS_FILE = path.join(__dirname, 'users.json');
 
+// Ініціалізація файлу користувачів, якщо він не існує
+if (!fs.existsSync(USERS_FILE)) {
+  fs.writeFileSync(USERS_FILE, JSON.stringify([]));
+}
+
 // Middleware
 app.use(bodyParser.json());
-app.use(express.static('public')); // Папка з HTML файлом
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Завантаження користувачів з файлу
-function loadUsers() {
-    try {
-        const data = fs.readFileSync(USERS_FILE, 'utf8');
-        return JSON.parse(data);
-    } catch (err) {
-        return {};
-    }
-}
-
-// Збереження користувачів у файл
-function saveUsers(users) {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf8');
-}
-
-// Маршрут для реєстрації
-app.post('/register', (req, res) => {
+// Маршрути
+app.post('/register', async (req, res) => {
+  try {
     const { name, email, password } = req.body;
-    const users = loadUsers();
+    const users = JSON.parse(fs.readFileSync(USERS_FILE));
 
-    if (users[email]) {
-        return res.status(400).json({ error: 'Користувач з таким email вже існує!' });
+    // Перевірка на існуючого користувача
+    if (users.some(user => user.email === email)) {
+      return res.status(400).json({ error: 'Користувач з таким email вже існує' });
     }
 
-    users[email] = { name, password };
-    saveUsers(users);
+    // Хешування пароля
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    res.json({ message: 'Реєстрація успішна!' });
+    // Створення нового користувача
+    const newUser = {
+      id: uuidv4(),
+      name,
+      email,
+      password: hashedPassword,
+      createdAt: new Date().toISOString()
+    };
+
+    users.push(newUser);
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+
+    res.status(201).json({ message: 'Реєстрація успішна!', user: { id: newUser.id, name: newUser.name } });
+  } catch (error) {
+    console.error('Помилка реєстрації:', error);
+    res.status(500).json({ error: 'Помилка сервера' });
+  }
 });
 
-// Маршрут для входу
-app.post('/login', (req, res) => {
+app.post('/login', async (req, res) => {
+  try {
     const { email, password } = req.body;
-    const users = loadUsers();
+    const users = JSON.parse(fs.readFileSync(USERS_FILE));
 
-    if (!users[email]) {
-        return res.status(400).json({ error: 'Користувача з таким email не знайдено!' });
+    // Пошук користувача
+    const user = users.find(user => user.email === email);
+    if (!user) {
+      return res.status(401).json({ error: 'Невірний email або пароль' });
     }
 
-    if (users[email].password !== password) {
-        return res.status(400).json({ error: 'Невірний пароль!' });
+    // Перевірка пароля
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Невірний email або пароль' });
     }
 
-    res.json({ name: users[email].name });
+    res.json({ message: 'Вхід успішний!', user: { id: user.id, name: user.name } });
+  } catch (error) {
+    console.error('Помилка входу:', error);
+    res.status(500).json({ error: 'Помилка сервера' });
+  }
 });
 
 // Запуск сервера
 app.listen(PORT, () => {
-    console.log(`Сервер запущено на http://localhost:${PORT}`);
+  console.log(`Сервер запущено на http://localhost:${PORT}`);
 });
